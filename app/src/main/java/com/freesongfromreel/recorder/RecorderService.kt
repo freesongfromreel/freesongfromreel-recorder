@@ -60,6 +60,8 @@ class RecorderService : Service() {
         ServiceState.isRecording = false
         stopMedia()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
+            .putExtra(EXTRA_FILE, outputFile?.absolutePath))
         stopSelf()
     }
 
@@ -83,10 +85,14 @@ class RecorderService : Service() {
         try {
             startRecordingInner(resultCode, data)
         } catch (e: Exception) {
-            // Never crash the app — clean up and tell the user what happened.
+            // Never crash the app — clean up, drop the FGS notification,
+            // and tell the user (and the Activity) what happened.
             ServiceState.isRecording = false
+            ServiceState.lastError = e.message ?: "Could not start recording"
+            val errMsg = ServiceState.lastError ?: "Could not start recording"
             cleanup()
-            Notification(this, "Recording failed", e.message ?: "Could not start recording")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            Notification(this, "Recording failed", errMsg)
                 .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
         }
     }
@@ -142,14 +148,20 @@ class RecorderService : Service() {
 
     private fun stopNotification(): Notification {
         val stopIntent = Intent(this, RecorderService::class.java).setAction(ACTION_STOP)
-        val pi = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE)
+        val stopPi = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE)
+        // Content tap opens the app — it must NOT stop the recording.
+        val openPi = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
+        )
         return android.app.Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Free Song Recorder")
-            .setContentText("Recording in progress — tap to stop")
+            .setContentText("Recording in progress — use the Stop action to finish")
             .setSmallIcon(android.R.drawable.ic_media_pause)
             .setOngoing(true)
-            .setContentIntent(pi)
-            .addAction(android.R.drawable.ic_media_pause, "Stop", pi)
+            .setContentIntent(openPi)
+            .addAction(android.R.drawable.ic_media_pause, "Stop", stopPi)
             .build()
     }
 
@@ -208,8 +220,10 @@ class RecorderService : Service() {
     companion object {
         const val ACTION_START = "com.freesongfromreel.recorder.START"
         const val ACTION_STOP = "com.freesongfromreel.recorder.STOP"
+        const val ACTION_RECORDING_STOPPED = "com.freesongfromreel.recorder.STOPPED"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+        const val EXTRA_FILE = "file"
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1
     }

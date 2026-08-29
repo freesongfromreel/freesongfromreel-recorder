@@ -6,4 +6,5 @@ package com.freesongfromreel.recorder
  */
 object ServiceState {
     @Volatile var isRecording: Boolean = false
+    @Volatile var lastError: String? = null
 }

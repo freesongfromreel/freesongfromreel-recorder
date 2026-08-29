@@ -2,7 +2,10 @@ package com.freesongfromreel.recorder
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -45,6 +48,20 @@ class MainActivity : AppCompatActivity() {
     private var recording = false
     private var lastFile: File? = null
 
+    private val stopReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            recording = false
+            setRecordingUi(false)
+            lastFile = intent?.getStringExtra(RecorderService.EXTRA_FILE)?.let { File(it) }
+                ?: lastFile()
+            status.text = when {
+                ServiceState.lastError != null -> "Recording failed: ${ServiceState.lastError}"
+                lastFile != null -> "Saved: ${lastFile?.name}"
+                else -> "No recording found"
+            }
+        }
+    }
+
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startProjection()
@@ -74,6 +91,10 @@ class MainActivity : AppCompatActivity() {
         result = findViewById(R.id.result)
         banner = findViewById(R.id.banner)
 
+        // Sync button/UI when the service stops on its own (notification Stop,
+        // crash, etc.) — not just when WE tap Stop.
+        registerReceiver(stopReceiver, IntentFilter(RecorderService.ACTION_RECORDING_STOPPED))
+
         MobileAds.initialize(this) {}
         banner.loadAd(AdRequest.Builder().build())
 
@@ -100,6 +121,18 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.siteBtn).setOnClickListener {
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://freesongfromreel.github.io/")))
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // If we come back while recording (e.g. from the shade), reflect reality.
+        recording = ServiceState.isRecording
+        setRecordingUi(recording)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try { unregisterReceiver(stopReceiver) } catch (_: Exception) {}
     }
 
     private fun startProjection() {
