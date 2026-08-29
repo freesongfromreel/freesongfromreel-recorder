@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -12,7 +13,9 @@ import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Environment
 import android.os.IBinder
+import android.provider.MediaStore
 import android.hardware.display.DisplayManager
 import java.io.File
 
@@ -31,6 +34,7 @@ class RecorderService : Service() {
     private var recorder: MediaRecorder? = null
     private var virtualDisplay: android.hardware.display.VirtualDisplay? = null
     private var outputFile: File? = null
+    private var pendingPublish: File? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,22 +57,34 @@ class RecorderService : Service() {
 
     /** Stop the recorder + virtual display + service. Safe to call anytime. */
     private fun stopRecording() {
-        try { recorder?.stop() } catch (_: Exception) {}
-        recorder?.release()
-        virtualDisplay?.release()
-        projection?.stop()
-        recorder = null
-        projection = null
-        virtualDisplay = null
+        ServiceState.isRecording = false
+        stopMedia()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
+    /** Release the MediaRecorder exactly once (shared by stop + cleanup). */
+    private fun stopMedia() {
+        val r = recorder
+        recorder = null
+        if (r != null) {
+            try { r.stop() } catch (_: Exception) {}
+            r.release()
+        }
+        virtualDisplay?.release()
+        virtualDisplay = null
+        projection?.stop()
+        projection = null
+        pendingPublish?.let { publishToMediaStore(it); pendingPublish = null }
+    }
+
     private fun startRecording(resultCode: Int, data: Intent?) {
+        ServiceState.isRecording = true
         try {
             startRecordingInner(resultCode, data)
         } catch (e: Exception) {
             // Never crash the app — clean up and tell the user what happened.
+            ServiceState.isRecording = false
             cleanup()
             Notification(this, "Recording failed", e.message ?: "Could not start recording")
                 .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
@@ -95,6 +111,9 @@ class RecorderService : Service() {
         if (!file.exists()) file.mkdirs()
         val out = File(file, "rec_${System.currentTimeMillis()}.mp4")
         outputFile = out
+        // Also publish to MediaStore (Movies) so the user can FIND the video in
+        // Gallery/Files and share it. Fires on stop via publishToMediaStore().
+        pendingPublish = out
 
         val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
         r.setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -152,16 +171,33 @@ class RecorderService : Service() {
 
     /** Release all recording resources; safe to call anytime. */
     private fun cleanup() {
-        try { recorder?.stop() } catch (_: Exception) {}
-        recorder?.release()
-        virtualDisplay?.release()
-        projection?.stop()
-        recorder = null
-        projection = null
-        virtualDisplay = null
+        stopMedia()
     }
 
     fun lastRecording(): File? = outputFile
+
+    /** Make the recording visible in Gallery/Files (Movies) so the user can find it. */
+    private fun publishToMediaStore(file: File) {
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/FreeSongRecorder")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                ?: return
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(file.readBytes())
+                out.flush()
+            }
+            values.clear()
+            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            contentResolver.update(uri, values, null, null)
+        } catch (_: Exception) {
+            // Publishing is best-effort; the file still exists in app storage.
+        }
+    }
 
     private fun Notification(context: Context, title: String, text: String): Notification =
         android.app.Notification.Builder(context, CHANNEL_ID)

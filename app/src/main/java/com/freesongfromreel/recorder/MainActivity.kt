@@ -78,7 +78,9 @@ class MainActivity : AppCompatActivity() {
         banner.loadAd(AdRequest.Builder().build())
 
         findViewById<Button>(R.id.recordBtn).setOnClickListener {
-            if (!recording) {
+            // Drive from the service's real state, not a stale local flag.
+            val active = ServiceState.isRecording
+            if (!active) {
                 if (Build.VERSION.SDK_INT >= 33 &&
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
                 ) {
@@ -88,7 +90,7 @@ class MainActivity : AppCompatActivity() {
                 startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false
                 setRecordingUi(false)
-                lastFile = recordingsDir().listFiles()?.maxByOrNull { it.lastModified() }
+                lastFile = lastFile()
                 status.text = if (lastFile != null) "Saved: ${lastFile?.name}" else "No recording found"
             }
         }
@@ -106,15 +108,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setRecordingUi(on: Boolean) {
-        status.text = if (on) "Recording…" else "Idle"
+        status.text = if (on) "Recording…" else "Idle — record a video, then tap Identify song"
+        val btn = findViewById<Button>(R.id.recordBtn)
+        btn.setText(if (on) R.string.record_stop else R.string.record)
         banner.visibility = if (on) android.view.View.GONE else android.view.View.VISIBLE
     }
 
     private fun recordingsDir(): File =
         File(getExternalFilesDir(null) ?: filesDir, "recordings").apply { mkdirs() }
 
+    /** Latest known recording (most recent file), or null. */
+    private fun lastFile(): File? =
+        recordingsDir().listFiles()?.maxByOrNull { it.lastModified() }
+
     private fun identify() {
-        val file = lastFile ?: recordingsDir().listFiles()?.maxByOrNull { it.lastModified() }
+        val file = lastFile
             ?: run { status.text = "Record something first."; return }
         result.text = "Identifying…"
         CoroutineScope(Dispatchers.Main).launch {
