@@ -93,7 +93,12 @@ class MainActivity : AppCompatActivity() {
 
         // Sync button/UI when the service stops on its own (notification Stop,
         // crash, etc.) — not just when WE tap Stop.
-        registerReceiver(stopReceiver, IntentFilter(RecorderService.ACTION_RECORDING_STOPPED))
+        // RECEIVER_NOT_EXPORTED required on API 33+ (targetSdk 34) or this throws.
+        ContextCompat.registerReceiver(
+            this, stopReceiver,
+            IntentFilter(RecorderService.ACTION_RECORDING_STOPPED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         MobileAds.initialize(this) {}
         banner.loadAd(AdRequest.Builder().build())
