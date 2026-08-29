@@ -3,6 +3,7 @@ package com.freesongfromreel.recorder
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -45,16 +46,50 @@ class RecorderService : Service() {
                 val data = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
                 startRecording(resultCode, data)
             }
-            ACTION_STOP -> stopSelf()
+            ACTION_STOP -> stopRecording()
         }
         return START_NOT_STICKY
     }
 
+    /** Stop the recorder + virtual display + service. Safe to call anytime. */
+    private fun stopRecording() {
+        try { recorder?.stop() } catch (_: Exception) {}
+        recorder?.release()
+        virtualDisplay?.release()
+        projection?.stop()
+        recorder = null
+        projection = null
+        virtualDisplay = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun startRecording(resultCode: Int, data: Intent?) {
+        try {
+            startRecordingInner(resultCode, data)
+        } catch (e: Exception) {
+            // Never crash the app — clean up and tell the user what happened.
+            cleanup()
+            Notification(this, "Recording failed", e.message ?: "Could not start recording")
+                .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
+        }
+    }
+
+    private fun startRecordingInner(resultCode: Int, data: Intent?) {
         if (data == null) { stopSelf(); return }
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val proj = mpm.getMediaProjection(resultCode, data)
         projection = proj
+
+        // Use the device's real screen size (fallback 720p), clamped + even dims.
+        // Hardcoded sizes can be rejected by some displays/encoders → crash.
+        val wm = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+        val real = android.graphics.Point().also { wm.defaultDisplay.getRealSize(it) }
+        val scale = minOf(1f, 1280f / maxOf(real.x, 1).toFloat())
+        var w = (real.x * scale).toInt() and 0x7FFFFFFE
+        var h = (real.y * scale).toInt() and 0x7FFFFFFE
+        if (w < 2) w = 720
+        if (h < 2) h = 1280
 
         val file = File(getExternalFilesDir(null) ?: filesDir, "recordings")
         if (!file.exists()) file.mkdirs()
@@ -67,7 +102,7 @@ class RecorderService : Service() {
         r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
         r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
         r.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-        r.setVideoSize(720, 1280)
+        r.setVideoSize(w, h)
         r.setVideoFrameRate(30)
         r.setVideoEncodingBitRate(4_000_000)
         r.setAudioEncodingBitRate(128_000)
@@ -76,14 +111,27 @@ class RecorderService : Service() {
 
         val density = resources.displayMetrics.densityDpi
         virtualDisplay = proj.createVirtualDisplay(
-            "FreeSongRecorder", 720, 1280, density,
+            "FreeSongRecorder", w, h, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null
         )
         r.start()
         recorder = r
 
-        Notification(this, "Recording…", "Recording screen")
+        stopNotification()
             .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, it) }
+    }
+
+    private fun stopNotification(): Notification {
+        val stopIntent = Intent(this, RecorderService::class.java).setAction(ACTION_STOP)
+        val pi = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE)
+        return android.app.Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("Free Song Recorder")
+            .setContentText("Recording in progress — tap to stop")
+            .setSmallIcon(android.R.drawable.ic_media_pause)
+            .setOngoing(true)
+            .setContentIntent(pi)
+            .addAction(android.R.drawable.ic_media_pause, "Stop", pi)
+            .build()
     }
 
     private fun startForegroundCompat() {
@@ -98,6 +146,12 @@ class RecorderService : Service() {
     }
 
     override fun onDestroy() {
+        cleanup()
+        super.onDestroy()
+    }
+
+    /** Release all recording resources; safe to call anytime. */
+    private fun cleanup() {
         try { recorder?.stop() } catch (_: Exception) {}
         recorder?.release()
         virtualDisplay?.release()
@@ -105,7 +159,6 @@ class RecorderService : Service() {
         recorder = null
         projection = null
         virtualDisplay = null
-        super.onDestroy()
     }
 
     fun lastRecording(): File? = outputFile

@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity() {
                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 } else startProjection()
             } else {
-                stopService(Intent(this, RecorderService::class.java))
+                startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false
                 setRecordingUi(false)
                 lastFile = recordingsDir().listFiles()?.maxByOrNull { it.lastModified() }
