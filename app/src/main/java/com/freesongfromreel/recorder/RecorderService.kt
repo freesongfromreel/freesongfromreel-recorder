@@ -12,6 +12,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.hardware.display.DisplayManager
 import java.io.File
 
 /**
@@ -76,7 +77,7 @@ class RecorderService : Service() {
         val density = resources.displayMetrics.densityDpi
         virtualDisplay = proj.createVirtualDisplay(
             "FreeSongRecorder", 720, 1280, density,
-            android.view.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null
         )
         r.start()
         recorder = r
