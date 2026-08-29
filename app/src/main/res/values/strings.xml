@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Free Song Recorder</string>
+    <string name="record">⏺ Record screen</string>
+    <string name="record_stop">⏹ Stop &amp; save</string>
+    <string name="identify">🎵 Identify song</string>
+    <string name="open_site">Open freesongfromreel.github.io — identify by URL or file</string>
+    <string name="idle">Idle — record a video, then tap Identify song</string>
+</resources>
