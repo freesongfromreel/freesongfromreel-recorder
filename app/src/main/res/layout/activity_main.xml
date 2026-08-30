@@ -4,58 +4,98 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="16dp"
     android:background="#f6f8fa">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="#1a1a2e"
-        android:layout_marginBottom="4dp" />
-
-    <TextView
-        android:id="@+id/status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/idle"
-        android:textColor="#666"
-        android:layout_marginBottom="16dp" />
-
-    <Button
-        android:id="@+id/recordBtn"
+    <!-- Header ad banner (top). Hidden while recording in code. -->
+    <com.google.android.gms.ads.AdView
+        android:id="@+id/bannerTop"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/record" />
+        ads:adSize="BANNER"
+        ads:adUnitId="ca-app-pub-3940256099942544/6300978111" />
 
-    <Button
-        android:id="@+id/identifyBtn"
+    <LinearLayout
+        android:id="@+id/content"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/identify"
-        android:layout_marginTop="8dp" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="16dp">
 
-    <TextView
-        android:id="@+id/result"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="16sp"
-        android:textColor="#1a1a2e"
-        android:layout_marginTop="12dp"
-        android:minHeight="48dp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#1a1a2e"
+            android:layout_marginBottom="4dp" />
 
-    <Button
-        android:id="@+id/siteBtn"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/open_site"
-        android:backgroundTint="#4a6cf7"
-        android:layout_marginTop="8dp"
-        style="@style/Widget.AppCompat.Button.Colored" />
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/idle"
+            android:textColor="#666"
+            android:layout_marginBottom="16dp" />
 
-    <!-- Banner ad: idle/editing/processing only (hidden while recording in code) -->
+        <Button
+            android:id="@+id/recordBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/record" />
+
+        <Button
+            android:id="@+id/identifyBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/identify"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:id="@+id/result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:textColor="#1a1a2e"
+            android:layout_marginTop="12dp"
+            android:minHeight="48dp" />
+
+        <Button
+            android:id="@+id/siteBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/open_site"
+            android:backgroundTint="#4a6cf7"
+            android:layout_marginTop="8dp"
+            style="@style/Widget.AppCompat.Button.Colored" />
+
+        <!-- Loading overlay: shown while the final MP4 is being muxed/saved
+             (Stop -> STOPPED broadcast). ProgressBar + message, center. -->
+        <LinearLayout
+            android:id="@+id/loadingOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone"
+            android:layout_marginTop="24dp">
+
+            <ProgressBar
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/finalizing"
+                android:textSize="16sp"
+                android:textColor="#1a1a2e"
+                android:layout_marginTop="12dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Bottom banner ad: idle/loading only (hidden while recording in code). -->
     <com.google.android.gms.ads.AdView
         android:id="@+id/banner"
         android:layout_width="match_parent"

@@ -44,13 +44,16 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
     private lateinit var result: TextView
+    private lateinit var bannerTop: AdView
     private lateinit var banner: AdView
+    private lateinit var loadingOverlay: android.view.View
     private var recording = false
     private var lastFile: File? = null
 
     private val stopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             recording = false
+            loadingOverlay.visibility = android.view.View.GONE
             setRecordingUi(false)
             lastFile = intent?.getStringExtra(RecorderService.EXTRA_FILE)?.let { File(it) }
                 ?: lastFile()
@@ -91,6 +94,7 @@ class MainActivity : AppCompatActivity() {
                 // to "Record" the instant the consent popups close.
                 recording = true
                 ServiceState.isRecording = true
+                loadingOverlay.visibility = android.view.View.GONE
                 setRecordingUi(true)
                 val intent = Intent(this, RecorderService::class.java).apply {
                     action = RecorderService.ACTION_START
@@ -109,7 +113,9 @@ class MainActivity : AppCompatActivity() {
 
         status = findViewById(R.id.status)
         result = findViewById(R.id.result)
+        bannerTop = findViewById(R.id.bannerTop)
         banner = findViewById(R.id.banner)
+        loadingOverlay = findViewById(R.id.loadingOverlay)
 
         // Sync button/UI when the service stops on its own (notification Stop,
         // crash, etc.) — not just when WE tap Stop.
@@ -121,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         MobileAds.initialize(this) {}
+        bannerTop.loadAd(AdRequest.Builder().build())
         banner.loadAd(AdRequest.Builder().build())
 
         findViewById<Button>(R.id.recordBtn).setOnClickListener {
@@ -136,8 +143,10 @@ class MainActivity : AppCompatActivity() {
                 startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false
                 setRecordingUi(false)
-                lastFile = lastFile()
-                status.text = if (lastFile != null) "Saved: ${lastFile?.name}" else "No recording found"
+                // Loading overlay = the "mixing audio + video" phase. Hidden when
+                // the STOPPED broadcast arrives (service finished saving the MP4).
+                loadingOverlay.visibility = android.view.View.VISIBLE
+                status.text = "Mixing audio + video…"
             }
         }
 
@@ -173,6 +182,7 @@ class MainActivity : AppCompatActivity() {
         val btn = findViewById<Button>(R.id.recordBtn)
         btn.setText(if (on) R.string.record_stop else R.string.record)
         banner.visibility = if (on) android.view.View.GONE else android.view.View.VISIBLE
+        bannerTop.visibility = if (on) android.view.View.GONE else android.view.View.VISIBLE
     }
 
     private fun recordingsDir(): File =

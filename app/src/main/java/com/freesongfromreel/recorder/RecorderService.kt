@@ -54,15 +54,25 @@ class RecorderService : Service() {
     /** Stop the engine + projection + service. Safe to call anytime. */
     private fun stopRecording() {
         ServiceState.isRecording = false
-        try { engine?.stop() } catch (_: Exception) {}
-        engine = null
-        try { projection?.stop() } catch (_: Exception) {}
-        projection = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
-            .putExtra(EXTRA_FILE, outputFile?.absolutePath)
-            .putExtra(EXTRA_AUDIO_SOURCE, audioSourceName))
-        stopSelf()
+        // Finalize (drain encoders, close muxer, publish to Gallery) off the main
+        // thread; broadcast only when the MP4 is actually saved so the Activity's
+        // loading overlay covers the whole "mixing" phase.
+        Thread {
+            try { engine?.stop() } catch (_: Exception) {}
+            engine = null
+            try { projection?.stop() } catch (_: Exception) {}
+            projection = null
+            val f = outputFile
+            if (f != null && pendingPublish != null) {
+                publishToMediaStore(f)
+                pendingPublish = null
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
+                .putExtra(EXTRA_FILE, f?.absolutePath)
+                .putExtra(EXTRA_AUDIO_SOURCE, audioSourceName))
+            stopSelf()
+        }.start()
     }
 
     private val audioSourceName: String
