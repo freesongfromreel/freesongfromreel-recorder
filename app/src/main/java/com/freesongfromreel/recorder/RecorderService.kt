@@ -9,30 +9,26 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
 import android.provider.MediaStore
-import android.hardware.display.DisplayManager
 import java.io.File
 
 /**
- * Foreground MediaProjection screen recorder. Writes MP4 to
- * filesDir/recordings/<timestamp>.mp4.
+ * Foreground MediaProjection screen recorder. Records the phone's OWN media
+ * playback (the reel's song) + the screen into filesDir/recordings/<ts>.mp4.
  *
- * ponytail: MVP records MIC audio (simple, works on all API 26+). Internal
- * app audio (the song) needs AudioPlaybackCapture (API 31+) — wire that when
- * this becomes a real product, it's the difference between "records the room"
- * and "records the reel".
+ * Audio + video muxing lives in [RecorderEngine] (MediaRecorder can't capture
+ * app-internal audio). Audio falls back to the microphone on old devices or
+ * when no capturable source exists — the UI reports which one was used.
  */
 class RecorderService : Service() {
 
     private var projection: MediaProjection? = null
-    private var recorder: MediaRecorder? = null
-    private var virtualDisplay: android.hardware.display.VirtualDisplay? = null
+    private var engine: RecorderEngine? = null
     private var outputFile: File? = null
     private var pendingPublish: File? = null
 
@@ -55,30 +51,22 @@ class RecorderService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Stop the recorder + virtual display + service. Safe to call anytime. */
+    /** Stop the engine + projection + service. Safe to call anytime. */
     private fun stopRecording() {
         ServiceState.isRecording = false
-        stopMedia()
+        try { engine?.stop() } catch (_: Exception) {}
+        engine = null
+        try { projection?.stop() } catch (_: Exception) {}
+        projection = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
-            .putExtra(EXTRA_FILE, outputFile?.absolutePath))
+            .putExtra(EXTRA_FILE, outputFile?.absolutePath)
+            .putExtra(EXTRA_AUDIO_SOURCE, audioSourceName))
         stopSelf()
     }
 
-    /** Release the MediaRecorder exactly once (shared by stop + cleanup). */
-    private fun stopMedia() {
-        val r = recorder
-        recorder = null
-        if (r != null) {
-            try { r.stop() } catch (_: Exception) {}
-            r.release()
-        }
-        virtualDisplay?.release()
-        virtualDisplay = null
-        projection?.stop()
-        projection = null
-        pendingPublish?.let { publishToMediaStore(it); pendingPublish = null }
-    }
+    private val audioSourceName: String
+        get() = engine?.audioSourceName ?: "Microphone"
 
     private fun startRecording(resultCode: Int, data: Intent?) {
         ServiceState.isRecording = true
@@ -94,6 +82,11 @@ class RecorderService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             Notification(this, "Recording failed", errMsg)
                 .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
+            // The Activity optimistically set UI to "Recording…" before starting
+            // us — tell it to revert (and surface the error) instead of leaving
+            // a desynced Stop button that does nothing.
+            sendBroadcast(Intent(ACTION_RECORDING_STOPPED))
+            stopSelf()
         }
     }
 
@@ -103,16 +96,6 @@ class RecorderService : Service() {
         val proj = mpm.getMediaProjection(resultCode, data)
         projection = proj
 
-        // Use the device's real screen size (fallback 720p), clamped + even dims.
-        // Hardcoded sizes can be rejected by some displays/encoders → crash.
-        val wm = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-        val real = android.graphics.Point().also { wm.defaultDisplay.getRealSize(it) }
-        val scale = minOf(1f, 1280f / maxOf(real.x, 1).toFloat())
-        var w = (real.x * scale).toInt() and 0x7FFFFFFE
-        var h = (real.y * scale).toInt() and 0x7FFFFFFE
-        if (w < 2) w = 720
-        if (h < 2) h = 1280
-
         val file = File(getExternalFilesDir(null) ?: filesDir, "recordings")
         if (!file.exists()) file.mkdirs()
         val out = File(file, "rec_${System.currentTimeMillis()}.mp4")
@@ -121,26 +104,19 @@ class RecorderService : Service() {
         // Gallery/Files and share it. Fires on stop via publishToMediaStore().
         pendingPublish = out
 
-        val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
-        r.setAudioSource(MediaRecorder.AudioSource.MIC)
-        r.setVideoSource(MediaRecorder.VideoSource.SURFACE)
-        r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-        r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-        r.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-        r.setVideoSize(w, h)
-        r.setVideoFrameRate(30)
-        r.setVideoEncodingBitRate(4_000_000)
-        r.setAudioEncodingBitRate(128_000)
-        r.setOutputFile(out.absolutePath)
-        r.prepare()
-
-        val density = resources.displayMetrics.densityDpi
-        virtualDisplay = proj.createVirtualDisplay(
-            "FreeSongRecorder", w, h, density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null
-        )
-        r.start()
-        recorder = r
+        val e = RecorderEngine(this, proj, out)
+        engine = e
+        e.listener = object : RecorderEngine.Listener {
+            override fun onError(msg: String) {
+                // Async encoder failure mid-recording (not the sync start path).
+                ServiceState.isRecording = false
+                ServiceState.lastError = msg
+                Notification(this@RecorderService, "Recording failed", msg)
+                    .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
+                stopRecording()
+            }
+        }
+        e.start()
 
         stopNotification()
             .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, it) }
@@ -183,10 +159,12 @@ class RecorderService : Service() {
 
     /** Release all recording resources; safe to call anytime. */
     private fun cleanup() {
-        stopMedia()
+        try { engine?.stop() } catch (_: Exception) {}
+        engine = null
+        try { projection?.stop() } catch (_: Exception) {}
+        projection = null
+        pendingPublish?.let { publishToMediaStore(it); pendingPublish = null }
     }
-
-    fun lastRecording(): File? = outputFile
 
     /** Make the recording visible in Gallery/Files (Movies) so the user can find it. */
     private fun publishToMediaStore(file: File) {
@@ -224,6 +202,7 @@ class RecorderService : Service() {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         const val EXTRA_FILE = "file"
+        const val EXTRA_AUDIO_SOURCE = "audio_source"
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1
     }

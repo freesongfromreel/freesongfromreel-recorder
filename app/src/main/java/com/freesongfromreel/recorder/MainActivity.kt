@@ -54,30 +54,50 @@ class MainActivity : AppCompatActivity() {
             setRecordingUi(false)
             lastFile = intent?.getStringExtra(RecorderService.EXTRA_FILE)?.let { File(it) }
                 ?: lastFile()
+            val audio = intent?.getStringExtra(RecorderService.EXTRA_AUDIO_SOURCE)
             status.text = when {
                 ServiceState.lastError != null -> "Recording failed: ${ServiceState.lastError}"
-                lastFile != null -> "Saved: ${lastFile?.name}"
+                lastFile != null -> "Saved: ${lastFile?.name}" +
+                    (if (audio != null) "\nAudio: $audio" else "")
                 else -> "No recording found"
             }
         }
     }
 
+    // RECORD_AUDIO first — only continue if granted (recording without mic throws).
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startProjection()
+            if (granted) notificationPermissionOrStart()
         }
+
+    // POST_NOTIFICATIONS is optional — the recording works either way.
+    private val notifLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { notificationPermissionOrStart() }
+
+    private fun notificationPermissionOrStart() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else startProjection()
+    }
 
     private val projectionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
             if (res.resultCode == Activity.RESULT_OK && res.data != null) {
+                // Set shared state + UI SYNCHRONOUSLY. onResume fires right after
+                // this callback and reads ServiceState; the service sets it only
+                // async in onStartCommand, so without this the toggle flips back
+                // to "Record" the instant the consent popups close.
+                recording = true
+                ServiceState.isRecording = true
+                setRecordingUi(true)
                 val intent = Intent(this, RecorderService::class.java).apply {
                     action = RecorderService.ACTION_START
                     putExtra(RecorderService.EXTRA_RESULT_CODE, res.resultCode)
                     putExtra(RecorderService.EXTRA_RESULT_DATA, res.data)
                 }
                 ContextCompat.startForegroundService(this, intent)
-                recording = true
-                setRecordingUi(true)
             }
         }
 
@@ -111,7 +131,7 @@ class MainActivity : AppCompatActivity() {
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
                 ) {
                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                } else startProjection()
+                } else notificationPermissionOrStart()
             } else {
                 startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false
@@ -130,8 +150,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // If we come back while recording (e.g. from the shade), reflect reality.
-        recording = ServiceState.isRecording
+        // NEVER down-sync here: right after the consent popups close, the
+        // projection callback has set ServiceState=true but the service hasn't
+        // started yet — reading the stale false flips the button back to
+        // "Record" mid-start. Only up-sync (service recording → reflect it).
+        if (ServiceState.isRecording) recording = true
         setRecordingUi(recording)
     }
 
