@@ -62,7 +62,9 @@ class RecorderService : Service() {
         // thread; broadcast only when the MP4 is actually saved so the Activity's
         // loading overlay covers the whole "mixing" phase.
         Thread {
-            try { engine?.stop() } catch (_: Exception) {}
+            android.util.Log.i(TAG, "stopRecording: engine.stop() begin")
+            try { engine?.stop() } catch (e: Exception) { android.util.Log.e(TAG, "engine.stop threw", e) }
+            android.util.Log.i(TAG, "stopRecording: engine.stop() done")
             engine = null
             try { projection?.stop() } catch (_: Exception) {}
             projection = null
@@ -72,10 +74,12 @@ class RecorderService : Service() {
                 pendingPublish = null
             }
             stopForeground(STOP_FOREGROUND_REMOVE)
+            android.util.Log.i(TAG, "stopRecording: broadcasting STOPPED")
             sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
                 .putExtra(EXTRA_FILE, f?.absolutePath)
                 .putExtra(EXTRA_AUDIO_SOURCE, audioSourceName))
             stopSelf()
+            android.util.Log.i(TAG, "stopRecording: done")
         }.start()
     }
 
@@ -264,6 +268,7 @@ class RecorderService : Service() {
             .setOngoing(true).build()
 
     companion object {
+        private const val TAG = "RecorderService"
         const val ACTION_START = "com.freesongfromreel.recorder.START"
         const val ACTION_STOP = "com.freesongfromreel.recorder.STOP"
         const val ACTION_RECORDING_STOPPED = "com.freesongfromreel.recorder.STOPPED"

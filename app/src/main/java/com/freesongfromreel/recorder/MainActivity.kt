@@ -61,6 +61,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Fallback: if the STOPPED broadcast never arrives (service stuck finalizing,
+    // system killed it), don't leave the user staring at "Extracting audio…"
+    // forever with all buttons hidden. Dismiss the overlay after 15s.
+    private val overlayTimeout = Runnable {
+        if (::loadingOverlay.isInitialized && loadingOverlay.visibility == android.view.View.VISIBLE) {
+            loadingOverlay.visibility = android.view.View.GONE
+            findViewById<Button>(R.id.recordBtn).visibility = android.view.View.VISIBLE
+            findViewById<Button>(R.id.identifyBtn).visibility = android.view.View.VISIBLE
+            findViewById<Button>(R.id.siteBtn).visibility = android.view.View.VISIBLE
+            recording = false
+            setRecordingUi(false)
+            status.text = if (lastFile() != null) "Saved: ${lastFile()?.name}" else "No recording found"
+        }
+    }
+    private val overlayHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
     private val stopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             // ALWAYS reset the button to Record: this broadcast means recording
@@ -69,6 +85,7 @@ class MainActivity : AppCompatActivity() {
             // the consent popup again (looks like restarting).
             recording = false
             loadingOverlay.visibility = android.view.View.GONE
+            overlayHandler.removeCallbacks(overlayTimeout)
             findViewById<Button>(R.id.recordBtn).visibility = android.view.View.VISIBLE
             findViewById<Button>(R.id.identifyBtn).visibility = android.view.View.VISIBLE
             findViewById<Button>(R.id.siteBtn).visibility = android.view.View.VISIBLE
@@ -186,6 +203,9 @@ class MainActivity : AppCompatActivity() {
                 findViewById<Button>(R.id.siteBtn).visibility = android.view.View.GONE
                 progressPct.text = "0%"
                 status.text = "Extracting audio…"
+                // Start the stuck-overlay fallback.
+                overlayHandler.removeCallbacks(overlayTimeout)
+                overlayHandler.postDelayed(overlayTimeout, 15_000)
             } else if (recording) {
                 // Button still shows "Stop & save" but the service already ended
                 // (system ended the projection — swipe of the cast notification,

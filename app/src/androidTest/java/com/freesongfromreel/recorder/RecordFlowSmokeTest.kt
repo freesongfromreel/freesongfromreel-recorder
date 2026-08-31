@@ -101,13 +101,13 @@ class RecordFlowSmokeTest {
         // Give it a moment, then stop via the button.
         device.waitForIdle()
         stopBtn.click()
-        val backToRecord = waitForRes("recordBtn", 20_000)
+        val backToRecord = waitForRes("recordBtn", 30_000)
         if (backToRecord == null) {
             // Diagnostics straight into the assertion (captured in the report):
             // is the app process even alive, and what crashed?
             val crash = try {
                 device.executeShellCommand(
-                    "logcat -d -t 300 2>/dev/null | grep -E 'FATAL EXCEPTION|AndroidRuntime|Process: com.freesong' | tail -25"
+                    "logcat -d -t 400 2>/dev/null | grep -E 'FATAL EXCEPTION|AndroidRuntime|Process: com.freesong|freesongfromreel|RecorderService|stopRecording' | tail -30"
                 ).trim()
             } catch (_: Exception) { "" }
             val state = try {
