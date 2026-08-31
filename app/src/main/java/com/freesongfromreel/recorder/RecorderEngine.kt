@@ -222,15 +222,19 @@ class RecorderEngine(
             listener?.onError(e.message ?: "audio codec error")
         }
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-            synchronized(muxerLock) {
-                muxer?.let {
-                    // Never addTrack after the muxer started (addTrack on a started
-                    // muxer throws IllegalStateException = crash from this thread).
-                    if (muxerStarted) return@synchronized
-                    audioTrack = it.addTrack(format)
-                    audioFormatReceived = true
-                    maybeStartMuxer()
+            try {
+                synchronized(muxerLock) {
+                    muxer?.let {
+                        // Never addTrack after the muxer started (addTrack on a started
+                        // muxer throws IllegalStateException = crash from this thread).
+                        if (muxerStarted) return@synchronized
+                        audioTrack = it.addTrack(format)
+                        audioFormatReceived = true
+                        maybeStartMuxer()
+                    }
                 }
+            } catch (_: Exception) {
+                // Codec released mid-stop; addTrack throws here uncaught = crash.
             }
         }
     }
@@ -245,39 +249,48 @@ class RecorderEngine(
             listener?.onError(e.message ?: "video codec error")
         }
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-            synchronized(muxerLock) {
-                muxer?.let {
-                    // Same guard as audio: never addTrack after the muxer started.
-                    if (muxerStarted) return@synchronized
-                    videoTrack = it.addTrack(format)
-                    videoFormatReceived = true
-                    videoFormatReceivedTimeMs = System.currentTimeMillis()
-                    maybeStartMuxer()
+            try {
+                synchronized(muxerLock) {
+                    muxer?.let {
+                        // Same guard as audio: never addTrack after the muxer started.
+                        if (muxerStarted) return@synchronized
+                        videoTrack = it.addTrack(format)
+                        videoFormatReceived = true
+                        videoFormatReceivedTimeMs = System.currentTimeMillis()
+                        maybeStartMuxer()
+                    }
                 }
+            } catch (_: Exception) {
+                // Codec released mid-stop; addTrack throws here uncaught = crash.
             }
         }
     }
 
     private fun writeSample(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo, audio: Boolean) {
-        val out = codec.getOutputBuffer(index)
-        val track = if (audio) audioTrack else videoTrack
-        if (out != null && info.size > 0 && track >= 0) {
-            val bytes = ByteArray(info.size)
-            out.position(info.offset)
-            out.get(bytes)
-            synchronized(muxerLock) {
-                if (muxerStarted) {
-                    val m = muxer ?: return@synchronized
-                    try {
-                        m.writeSampleData(track, java.nio.ByteBuffer.wrap(bytes), info)
-                    } catch (_: Exception) {}
-                } else if (pendingBytes < PENDING_CAP) {
-                    pending.addLast(Pending(track, bytes, info.presentationTimeUs, info.flags))
-                    pendingBytes += bytes.size
+        try {
+            val out = codec.getOutputBuffer(index)
+            val track = if (audio) audioTrack else videoTrack
+            if (out != null && info.size > 0 && track >= 0) {
+                val bytes = ByteArray(info.size)
+                out.position(info.offset)
+                out.get(bytes)
+                synchronized(muxerLock) {
+                    if (muxerStarted) {
+                        val m = muxer ?: return@synchronized
+                        try {
+                            m.writeSampleData(track, java.nio.ByteBuffer.wrap(bytes), info)
+                        } catch (_: Exception) {}
+                    } else if (pendingBytes < PENDING_CAP) {
+                        pending.addLast(Pending(track, bytes, info.presentationTimeUs, info.flags))
+                        pendingBytes += bytes.size
+                    }
                 }
             }
+        } catch (_: Exception) {
+            // Codec can be mid-release during stop() — an exception here would
+            // run UNCAUGHT on the codec callback thread = whole-process crash.
         }
-        codec.releaseOutputBuffer(index, false)
+        try { codec.releaseOutputBuffer(index, false) } catch (_: Exception) {}
     }
 
     private fun maybeStartMuxer() {
