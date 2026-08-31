@@ -173,7 +173,19 @@ class RecorderService : Service() {
                 progressRelay(percent)
             }
         }
-        e.start()
+        val startErr = e.start()
+        if (startErr != null) {
+            // No mic fallback — internal capture failed to start. Fail loudly:
+            // broadcast an error so the Activity resets the button + shows why.
+            ServiceState.isRecording = false
+            ServiceState.lastError = startErr
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
+                .putExtra(EXTRA_FILE, (null as String?))
+                .putExtra(EXTRA_AUDIO_SOURCE, (null as String?)))
+            stopSelf()
+            return
+        }
 
         stopNotification()
             .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID, it) }
