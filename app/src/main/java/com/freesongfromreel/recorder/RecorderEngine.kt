@@ -57,6 +57,9 @@ class RecorderEngine(
     private var outStream: FileOutputStream? = null
     private var dataBytes = 0L
 
+    /** Captured PCM bytes written so far (for diagnostics / Saved message). */
+    val bytesRecorded: Long get() = dataBytes
+
     // ---- lifecycle ---------------------------------------------------------
 
     fun start() {
@@ -106,9 +109,10 @@ class RecorderEngine(
     // ---- audio input pump ---------------------------------------------------
 
     private fun pumpAudio() {
-        val ar = audioRecord ?: return
+        var ar = audioRecord ?: return
         val buf = ByteArray(BUF_SIZE)
         var stream: FileOutputStream? = null
+        var lastDataMs = System.currentTimeMillis()
         try {
             stream = FileOutputStream(outFile)
             outStream = stream
@@ -121,8 +125,25 @@ class RecorderEngine(
                 }
                 if (n <= 0) {
                     if (!running.get()) break
+                    // n==0 (no data) with the source being internal-audio: it can
+                    // silently starve on some devices (nothing playable matches the
+                    // capture usages). Fall back to the mic, which usually delivers.
+                    if (audioSourceName.startsWith("Internal") &&
+                        System.currentTimeMillis() - lastDataMs > FALLBACK_MS) {
+                        android.util.Log.w(TAG, "internal capture starved; switching to mic")
+                        val mic = buildMicRecord()
+                        if (mic != null) {
+                            try { ar.stop() } catch (_: Exception) {}
+                            try { ar.release() } catch (_: Exception) {}
+                            ar = mic
+                            audioRecord = ar
+                            audioSourceName = "Microphone (fallback)"
+                        }
+                        lastDataMs = System.currentTimeMillis()
+                    }
                     continue
                 }
+                lastDataMs = System.currentTimeMillis()
                 try {
                     stream.write(buf, 0, n)
                     dataBytes += n
@@ -174,6 +195,27 @@ class RecorderEngine(
 
     // ---- helpers ---------------------------------------------------------------
 
+    private fun buildMicRecord(): AudioRecord? {
+        val format = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .setSampleRate(SAMPLE_RATE)
+            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+            .build()
+        val bufSize = maxOf(
+            AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT) * 4,
+            32 * 1024
+        )
+        return try {
+            val ar = AudioRecord.Builder()
+                .setAudioSource(MediaRecorder.AudioSource.MIC)
+                .setAudioFormat(format)
+                .setBufferSizeInBytes(bufSize)
+                .build()
+            ar.startRecording()
+            if (ar.recordingState == AudioRecord.RECORDSTATE_RECORDING) ar else { ar.release(); null }
+        } catch (_: Exception) { null }
+    }
+
     private fun buildAudioRecord(): Pair<AudioRecord?, String> {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -217,8 +259,10 @@ class RecorderEngine(
     }
 
     companion object {
+        private const val TAG = "RecorderEngine"
         private const val SAMPLE_RATE = 44_100
         private const val CHANNELS = 2
         private const val BUF_SIZE = 8192
+        private const val FALLBACK_MS = 2_500L
     }
 }

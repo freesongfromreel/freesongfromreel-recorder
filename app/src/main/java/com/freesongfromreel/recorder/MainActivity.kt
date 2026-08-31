@@ -93,9 +93,15 @@ class MainActivity : AppCompatActivity() {
             lastFile = intent?.getStringExtra(RecorderService.EXTRA_FILE)?.let { File(it) }
                 ?: lastFile()
             val audio = intent?.getStringExtra(RecorderService.EXTRA_AUDIO_SOURCE)
+            val bytes = intent?.getLongExtra(RecorderService.EXTRA_BYTES, 0) ?: 0
+            val sizeDesc = if (bytes > 0) {
+                val secs = bytes / (44_100L * 2 * 2)
+                val kb = bytes / 1024
+                " ($kb KB, ~${secs}s)"
+            } else ""
             status.text = when {
                 ServiceState.lastError != null -> "Recording failed: ${ServiceState.lastError}"
-                lastFile != null -> "Saved: ${lastFile?.name}" +
+                lastFile != null -> "Saved: ${lastFile?.name}$sizeDesc" +
                     (if (audio != null) "\nAudio: $audio" else "")
                 else -> "No recording found"
             }

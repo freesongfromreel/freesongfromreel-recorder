@@ -63,6 +63,7 @@ class RecorderService : Service() {
         // loading overlay covers the whole "mixing" phase.
         Thread {
             android.util.Log.i(TAG, "stopRecording: engine.stop() begin")
+            val bytes = engine?.bytesRecorded ?: 0L
             try { engine?.stop() } catch (e: Exception) { android.util.Log.e(TAG, "engine.stop threw", e) }
             android.util.Log.i(TAG, "stopRecording: engine.stop() done")
             engine = null
@@ -77,7 +78,8 @@ class RecorderService : Service() {
             android.util.Log.i(TAG, "stopRecording: broadcasting STOPPED")
             sendBroadcast(Intent(ACTION_RECORDING_STOPPED)
                 .putExtra(EXTRA_FILE, f?.absolutePath)
-                .putExtra(EXTRA_AUDIO_SOURCE, audioSourceName))
+                .putExtra(EXTRA_AUDIO_SOURCE, audioSourceName)
+                .putExtra(EXTRA_BYTES, bytes))
             stopSelf()
             android.util.Log.i(TAG, "stopRecording: done")
         }.start()
@@ -278,6 +280,7 @@ class RecorderService : Service() {
         const val EXTRA_FILE = "file"
         const val EXTRA_AUDIO_SOURCE = "audio_source"
         const val EXTRA_PROGRESS = "progress"
+        const val EXTRA_BYTES = "bytes"
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1
     }
