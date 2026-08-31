@@ -267,8 +267,9 @@ class MainActivity : AppCompatActivity() {
         recordingsDir().listFiles()?.maxByOrNull { it.lastModified() }
 
     private fun identify() {
-        val file = lastFile
+        val file = lastFile ?: lastFile()
             ?: run { status.text = "Record something first."; return }
+        lastFile = file
         result.text = "Identifying…"
         CoroutineScope(Dispatchers.Main).launch {
             try {
@@ -289,7 +290,7 @@ class MainActivity : AppCompatActivity() {
     private fun upload(file: File): JSONObject {
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.asRequestBody("video/mp4".toMediaType()))
+            .addFormDataPart("file", file.name, file.asRequestBody("audio/wav".toMediaType()))
             .build()
         val req = Request.Builder()
             .url("https://reel2song-backend.onrender.com/api/detect-file")

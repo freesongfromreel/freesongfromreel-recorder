@@ -142,7 +142,7 @@ class RecorderService : Service() {
 
         val file = File(getExternalFilesDir(null) ?: filesDir, "recordings")
         if (!file.exists()) file.mkdirs()
-        val out = File(file, "rec_${System.currentTimeMillis()}.mp4")
+        val out = File(file, "rec_${System.currentTimeMillis()}.wav")
         outputFile = out
         // Also publish to MediaStore (Movies) so the user can FIND the video in
         // Gallery/Files and share it. Fires on stop via publishToMediaStore().
@@ -238,23 +238,23 @@ class RecorderService : Service() {
         pendingPublish?.let { publishToMediaStore(it); pendingPublish = null }
     }
 
-    /** Make the recording visible in Gallery/Files (Movies) so the user can find it. */
+    /** Make the recording visible in Gallery/Files (Music) so the user can find it. */
     private fun publishToMediaStore(file: File) {
         try {
             val values = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
-                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/FreeSongRecorder")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
+                put(MediaStore.Audio.Media.DISPLAY_NAME, file.name)
+                put(MediaStore.Audio.Media.MIME_TYPE, "audio/wav")
+                put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/FreeSongRecorder")
+                put(MediaStore.Audio.Media.IS_PENDING, 1)
             }
-            val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
                 ?: return
             contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(file.readBytes())
                 out.flush()
             }
             values.clear()
-            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            values.put(MediaStore.Audio.Media.IS_PENDING, 0)
             contentResolver.update(uri, values, null, null)
         } catch (_: Exception) {
             // Publishing is best-effort; the file still exists in app storage.
