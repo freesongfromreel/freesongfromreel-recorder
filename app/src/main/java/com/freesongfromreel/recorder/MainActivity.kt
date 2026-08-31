@@ -10,6 +10,8 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.net.Uri
 import android.widget.Button
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,18 +76,34 @@ class MainActivity : AppCompatActivity() {
     // RECORD_AUDIO first — only continue if granted (recording without mic throws).
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) notificationPermissionOrStart()
+            if (granted) notificationOrOverlayOrStart()
         }
 
-    // POST_NOTIFICATIONS is optional — the recording works either way.
-    private val notifLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { notificationPermissionOrStart() }
-
-    private fun notificationPermissionOrStart() {
+    private fun notificationOrOverlayOrStart() {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else overlayOrStart()
+    }
+
+    // POST_NOTIFICATIONS is optional — the recording works either way.
+    private val notifLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { overlayOrStart() }
+
+    // Overlay ("display over other apps") keeps the cast/Stop overlay usable and
+    // stops the system from treating capture as dismissible — the fix most screen
+    // recorders use to avoid the "looks recorded, then silently ended" state.
+    private val overlayLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { startProjection() }
+
+    private fun overlayOrStart() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            !Settings.canDrawOverlays(this)
+        ) {
+            overlayLauncher.launch(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            )
         } else startProjection()
     }
 
@@ -142,7 +160,7 @@ class MainActivity : AppCompatActivity() {
                     ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
                 ) {
                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                } else notificationPermissionOrStart()
+                } else notificationOrOverlayOrStart()
             } else {
                 startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false

@@ -171,7 +171,7 @@ class RecorderService : Service() {
             .setContentTitle("Free Song Recorder")
             .setContentText("Recording in progress — use the Stop action to finish")
             .setSmallIcon(android.R.drawable.ic_media_pause)
-            .setOngoing(true)
+            .setOngoing(true) // non-dismissible: swiping it away kills capture silently
             .setContentIntent(openPi)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopPi)
             .build()
