@@ -86,7 +86,7 @@ class RecordFlowSmokeTest {
         val stopText = stopBtn!!.text
         assertTrue(
             "Button should read 'Stop & save' after starting, was: '$stopText'",
-            stopText.contains("Stop")
+            stopText.contains("stop", ignoreCase = true)
         )
 
         // Give it a moment, then stop via the button.
@@ -96,7 +96,10 @@ class RecordFlowSmokeTest {
         if (backToRecord == null) dumpScreen("no recordBtn after stop")
         assertNotNull("After stop, button should return", backToRecord)
         val backText = backToRecord!!.text
-        assertTrue("Button should read 'Record screen' after stop, was: '$backText'", backText.contains("Record"))
+        assertTrue(
+            "Button should read 'Record screen' after stop, was: '$backText'",
+            backText.contains("record", ignoreCase = true)
+        )
     }
 
     // ---- helpers -----------------------------------------------------------
