@@ -56,7 +56,9 @@ class RecordFlowSmokeTest {
         runCatching { device.executeShellCommand("pm grant $pkg android.permission.RECORD_AUDIO") }
         runCatching { device.executeShellCommand("pm grant $pkg android.permission.POST_NOTIFICATIONS") }
         runCatching { device.executeShellCommand("appops set $pkg SYSTEM_ALERT_WINDOW allow") }
-        runCatching { device.executeShellCommand("appops set $pkg PROJECT_MEDIA allow") }
+        // NOTE: do NOT pre-grant PROJECT_MEDIA — doing so bypasses the
+        // MediaProjection consent dialog entirely (the system auto-grants the
+        // projection), so the test would never see "Start now".
         device.pressHome()
     }
 
