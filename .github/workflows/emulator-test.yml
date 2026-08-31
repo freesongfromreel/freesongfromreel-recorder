@@ -3,10 +3,6 @@ name: emulator-test
 # Runs the app end-to-end on a KVM-accelerated Android emulator so recording
 # regressions (crash on consent, phantom "Recording…", button not resetting)
 # are caught BEFORE the APK is deployed to the site.
-#
-# Requires a KVM-enabled runner (GitHub-hosted ubuntu-latest has KVM + a nested
-# HAXM/KVM path). If this runs on the free hosted runners, KVM may be absent and
-# the emulator falls back to slow software mode — bump the timeouts if so.
 
 on:
   push:
@@ -33,30 +29,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # ReactiveCircus's documented KVM setup: make /dev/kvm accessible to the
+      # runner user. Without this the emulator falls back to (very slow) software
+      # mode, and adb can fail to come up — which is what broke the first run.
       - name: Enable KVM
         run: |
-          echo "KVM check:"
-          ls -l /dev/kvm || echo "warning: /dev/kvm not present (software emulation, slow)" || true
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
 
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
 
-      - name: Check debug androidTest compiles
-        run: ./gradlew :app:assembleDebugAndroidTest --stacktrace
-
-      # Gradle Android plugin pins an SDK/emulator/system-image; create + boot.
-      - name: Boot emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          target: google_apis
-          arch: x86_64
-          avd-name: free-song-ci
-          force-avd-creation: false
-          emulator-options: -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect
-          disable-animations: true
-          script: echo "emulator booted"
-
+      # Single reactivecircus invocation: builds + installs + boots the emulator
+      # + runs the test against it, all sharing the same device (separate
+      # invocations don't reliably share the booted emulator → adb 5037).
       - name: Run instrumented smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -64,8 +52,10 @@ jobs:
           target: google_apis
           arch: x86_64
           avd-name: free-song-ci
-          force-avd-creation: false
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -no-metrics
           script: |
+            ./gradlew :app:assembleDebugAndroidTest
             ./gradlew :app:connectedDebugAndroidTest --stacktrace
 
       - name: Archive test report on failure
@@ -74,3 +64,4 @@ jobs:
         with:
           name: test-results
           path: app/build/reports/androidTests
+          if-no-files-found: warn
