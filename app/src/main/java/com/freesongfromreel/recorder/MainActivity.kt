@@ -52,6 +52,10 @@ class MainActivity : AppCompatActivity() {
 
     private val stopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            // ALWAYS reset the button to Record: this broadcast means recording
+            // is over (whether saved or failed). Without this the button stays
+            // stuck as "Stop & save" after a failed start, so the next tap shows
+            // the consent popup again (looks like restarting).
             recording = false
             loadingOverlay.visibility = android.view.View.GONE
             setRecordingUi(false)

@@ -114,9 +114,16 @@ class RecorderService : Service() {
         projection = proj
 
         // Projection obtained → NOW it's safe to start the mediaProjection-typed
-        // FGS. (On API 34+ starting it before an active projection exists can
-        // throw; startForegroundCompat self-guards regardless.)
-        startForegroundCompat()
+        // FGS. On API 34+ an untyped FGS throws from createVirtualDisplay later,
+        // so a typed-start failure here aborts the recording cleanly instead of
+        // producing a phantom "Recording…" that can never capture.
+        val fgErr = startForegroundCompat()
+        if (fgErr != null) {
+            cleanup()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            throw IllegalStateException("Foreground service (mediaProjection): $fgErr")
+        }
 
         val file = File(getExternalFilesDir(null) ?: filesDir, "recordings")
         if (!file.exists()) file.mkdirs()
@@ -172,19 +179,30 @@ class RecorderService : Service() {
 
     private var fgStarted = false
 
-    private fun startForegroundCompat() {
-        if (fgStarted) return
+    /**
+     * Start this service as foreground with the mediaProjection type. Returns
+     * null on success, or an error message on failure.
+     *
+     * CRITICAL: on API 34+, if the typed startForeground fails we must NOT fall
+     * back to a plain (untyped) startForeground — a mediaProjection-typed FGS is
+     * REQUIRED for createVirtualDisplay ("Media projections require a foreground
+     * service of type ...MEDIA_PROJECTION"). Falling back masks the problem and
+     * produces a phantom recording that can never actually capture. Fail loudly.
+     */
+    private fun startForegroundCompat(): String? {
+        if (fgStarted) return null
         val n = Notification(this, "Free Song Recorder", "Ready to record")
-        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        try {
-            if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIF_ID, n, type)
-            else startForeground(NOTIF_ID, n)
-        } catch (e: SecurityException) {
-            // API 34+ may reject the mediaProjection type in some orderings —
-            // fall back to plain so a startForeground quirk can never crash the app.
-            try { startForeground(NOTIF_ID, n) } catch (_: Exception) {}
+        return try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            } else {
+                startForeground(NOTIF_ID, n)
+            }
+            fgStarted = true
+            null
+        } catch (e: Exception) {
+            e.message ?: "Could not start foreground service (mediaProjection type)"
         }
-        fgStarted = true
     }
 
     override fun onDestroy() {
