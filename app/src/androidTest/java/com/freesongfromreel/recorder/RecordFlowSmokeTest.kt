@@ -66,7 +66,7 @@ class RecordFlowSmokeTest {
         assertNotNull("Record button should appear (is app foreground? pkg=${device.currentPackageName})", record)
 
         // Tap Record -> grants + consent flow.
-        record.click()
+        record!!.click()
         handleRuntimePermission(Manifest.permission.RECORD_AUDIO)
         handleRuntimePermission(Manifest.permission.POST_NOTIFICATIONS)
         handleOverlayPermission()
@@ -76,7 +76,7 @@ class RecordFlowSmokeTest {
         val stopBtn = waitForRes("recordBtn", 12_000)
         if (stopBtn == null) dumpScreen("no stopBtn after start")
         assertNotNull("Button should still exist after starting (pkg=${device.currentPackageName})", stopBtn)
-        val stopText = stopBtn.text
+        val stopText = stopBtn!!.text
         assertTrue(
             "Button should read 'Stop & save' after starting, was: '$stopText'",
             stopText.contains("Stop")
@@ -88,7 +88,7 @@ class RecordFlowSmokeTest {
         val backToRecord = waitForRes("recordBtn", 12_000)
         if (backToRecord == null) dumpScreen("no recordBtn after stop")
         assertNotNull("After stop, button should return", backToRecord)
-        val backText = backToRecord.text
+        val backText = backToRecord!!.text
         assertTrue("Button should read 'Record screen' after stop, was: '$backText'", backText.contains("Record"))
     }
 
@@ -142,6 +142,6 @@ class RecordFlowSmokeTest {
         val start = device.findObject(By.textContains("Start now"))
         if (start == null) dumpScreen("no Start now")
         assertNotNull("Should see the projection 'Start now' prompt", start)
-        start.click()
+        start!!.click()
     }
 }
