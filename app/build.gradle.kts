@@ -15,6 +15,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // Release signing reads keystore.properties (gitignored — holds passwords).
@@ -58,4 +59,11 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // AdMob banners on idle/processing screens (never during recording)
     implementation("com.google.android.gms:play-services-ads:23.2.0")
+
+    // Instrumentation: end-to-end smoke test that drives the real UI + popups.
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }

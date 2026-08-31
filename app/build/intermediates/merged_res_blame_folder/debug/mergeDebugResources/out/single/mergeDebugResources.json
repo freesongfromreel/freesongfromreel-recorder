@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "com.freesongfromreel.recorder.app-debug-46:/drawable_ic_launcher.xml.flat",
+        "source": "com.freesongfromreel.recorder.app-main-48:/drawable/ic_launcher.xml"
+    },
+    {
+        "merged": "com.freesongfromreel.recorder.app-debug-46:/layout_activity_main.xml.flat",
+        "source": "com.freesongfromreel.recorder.app-main-48:/layout/activity_main.xml"
+    }
+]

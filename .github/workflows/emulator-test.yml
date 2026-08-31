@@ -1,0 +1,76 @@
+name: emulator-test
+
+# Runs the app end-to-end on a KVM-accelerated Android emulator so recording
+# regressions (crash on consent, phantom "Recording…", button not resetting)
+# are caught BEFORE the APK is deployed to the site.
+#
+# Requires a KVM-enabled runner (GitHub-hosted ubuntu-latest has KVM + a nested
+# HAXM/KVM path). If this runs on the free hosted runners, KVM may be absent and
+# the emulator falls back to slow software mode — bump the timeouts if so.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - '.github/workflows/emulator-test.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+
+jobs:
+  instrumented:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Enable KVM
+        run: |
+          echo "KVM check:"
+          ls -l /dev/kvm || echo "warning: /dev/kvm not present (software emulation, slow)" || true
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Check debug androidTest compiles
+        run: ./gradlew :app:assembleDebugAndroidTest --stacktrace
+
+      # Gradle Android plugin pins an SDK/emulator/system-image; create + boot.
+      - name: Boot emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          avd-name: free-song-ci
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: echo "emulator booted"
+
+      - name: Run instrumented smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          avd-name: free-song-ci
+          force-avd-creation: false
+          script: |
+            ./gradlew :app:connectedDebugAndroidTest --stacktrace
+
+      - name: Archive test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/reports/androidTests

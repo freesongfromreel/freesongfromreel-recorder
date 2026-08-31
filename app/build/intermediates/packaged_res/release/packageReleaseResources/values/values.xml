@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="accent">#8fa8ff</color>
+    <color name="primary">#4a6cf7</color>
+    <color name="primary_dark">#16213e</color>
+    <string name="app_name">Free Song Recorder</string>
+    <string name="finalizing">Mixing audio + video…</string>
+    <string name="identify">🎵 Identify song</string>
+    <string name="idle">Idle — record a video, then tap Identify song</string>
+    <string name="open_site">Open freesongfromreel.github.io — identify by URL or file</string>
+    <string name="record">⏺ Record screen</string>
+    <string name="record_stop">⏹ Stop &amp; save</string>
+    <style name="Theme.FreeSongRecorder" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/accent</item>
+    </style>
+</resources>

@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "/root/.gradle/daemon/8.9/com.freesongfromreel.recorder.app-release-46:/layout_activity_main.xml.flat",
+        "source": "/root/.gradle/daemon/8.9/com.freesongfromreel.recorder.app-main-47:/layout/activity_main.xml"
+    },
+    {
+        "merged": "/root/.gradle/daemon/8.9/com.freesongfromreel.recorder.app-release-46:/drawable_ic_launcher.xml.flat",
+        "source": "/root/.gradle/daemon/8.9/com.freesongfromreel.recorder.app-main-47:/drawable/ic_launcher.xml"
+    },
+    {
+        "merged": "com.freesongfromreel.recorder.app-release-46:/layout_activity_main.xml.flat",
+        "source": "com.freesongfromreel.recorder.app-main-47:/layout/activity_main.xml"
+    }
+]
