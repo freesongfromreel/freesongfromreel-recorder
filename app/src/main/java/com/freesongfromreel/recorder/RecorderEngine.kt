@@ -124,8 +124,10 @@ class RecorderEngine(
                     // Runs on the main looper; stop() can block a few seconds
                     // draining encoders, so finalize off-thread.
                     Thread {
-                        stop()
-                        listener?.onStopped()
+                        try {
+                            stop()
+                            listener?.onStopped()
+                        } catch (_: Exception) {}
                     }.start()
                 }
             },
@@ -166,12 +168,22 @@ class RecorderEngine(
         val ar = audioRecord ?: return
         val buf = ByteArray(AUDIO_BUF)
         while (running.get()) {
-            val n = ar.read(buf, 0, buf.size)
+            val n = try {
+                ar.read(buf, 0, buf.size)
+            } catch (e: Exception) {
+                // e.g. AudioRecord released/stopped under us — stop the thread
+                // instead of crashing the process (uncaught in a thread = app crash).
+                break
+            }
             if (n <= 0) {
                 if (!running.get()) break
                 continue
             }
-            feedAudio(buf, n)
+            try {
+                feedAudio(buf, n)
+            } catch (_: Exception) {
+                break
+            }
         }
         pumpDone.countDown()
     }
@@ -208,6 +220,11 @@ class RecorderEngine(
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
             synchronized(muxerLock) {
                 muxer?.let {
+                    // If the muxer already started (watchdog fired on the other
+                    // track), addTrack would throw IllegalStateException from this
+                    // callback thread = crash. Skip the late track instead: it
+                    // stays -1, writeSample drops those samples (video-only file).
+                    if (muxerStarted) return@synchronized
                     audioTrack = it.addTrack(format)
                     tryStart()
                 }
@@ -227,6 +244,8 @@ class RecorderEngine(
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
             synchronized(muxerLock) {
                 muxer?.let {
+                    // Same guard as audio: never addTrack after the muxer started.
+                    if (muxerStarted) return@synchronized
                     videoTrack = it.addTrack(format)
                     tryStart()
                 }
