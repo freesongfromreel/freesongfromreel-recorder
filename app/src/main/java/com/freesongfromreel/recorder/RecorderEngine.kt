@@ -83,17 +83,25 @@ class RecorderEngine(
             null
         )
 
-        Thread { pumpAudio() }.start()
+        pumpThread = Thread { pumpAudio() }
+        pumpThread!!.start()
         return null
     }
+
+    private var pumpThread: Thread? = null
 
     fun stop() {
         if (!running.getAndSet(false)) return
         listener?.onStopProgress(50)
         ending = true
         try { audioRecord?.stop() } catch (_: Exception) {} // unblocks pumpAudio read
-        // Give the pump thread a moment to flush + close the stream itself.
-        pumpDone.await(2, TimeUnit.SECONDS)
+        // Wait for the pump to actually finish (flush + close the stream). If it
+        // never returns (stuck read), proceed anyway after the timeout and patch
+        // from the file's real length — never early-patch a half-written file.
+        val t = pumpThread
+        if (t != null && t.isAlive) {
+            try { t.join(3_000) } catch (_: Exception) {}
+        }
         patchWavHeader()
         try { audioRecord?.release() } catch (_: Exception) {}
         audioRecord = null
@@ -167,10 +175,11 @@ class RecorderEngine(
         if (!f.exists()) return
         try {
             java.io.RandomAccessFile(f, "rw").use { raf ->
+                val dataLen = f.length() - 44 // everything after the header
                 raf.seek(4)
-                raf.writeInt(((44 - 8) + dataBytes).toInt())
+                raf.writeInt((36 + dataLen).toInt()) // RIFF size = 36 + data
                 raf.seek(40)
-                raf.writeInt(dataBytes.toInt())
+                raf.writeInt(dataLen.toInt())
             }
         } catch (_: Exception) {}
     }
