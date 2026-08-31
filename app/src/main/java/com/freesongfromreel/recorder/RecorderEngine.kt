@@ -83,21 +83,17 @@ class RecorderEngine(
         )
 
         Thread { pumpAudio() }.start()
+        Thread { watchdog() }.start()
     }
 
     fun stop() {
         if (!running.getAndSet(false)) return
-        try { audioRecord?.stop() } catch (_: Exception) {} // unblocks pumpAudio read
-        // Give the pump thread a moment to flush its last buffer.
-        try { Thread.sleep(300) } catch (_: Exception) {}
+        listener?.onStopProgress(50)
         ending = true
-        try {
-            outStream?.flush()
-        } catch (_: Exception) {}
-        // Patch the WAV header with the final sizes.
+        try { audioRecord?.stop() } catch (_: Exception) {} // unblocks pumpAudio read
+        // Give the pump thread a moment to flush + close the stream itself.
+        pumpDone.await(2, TimeUnit.SECONDS)
         patchWavHeader()
-        try { outStream?.close() } catch (_: Exception) {}
-        outStream = null
         try { audioRecord?.release() } catch (_: Exception) {}
         audioRecord = null
         listener?.onStopProgress(100)
@@ -105,45 +101,70 @@ class RecorderEngine(
 
     @Volatile
     private var ending = false
+    private val pumpDone = java.util.concurrent.CountDownLatch(1)
+
+    // If the playback-capture AudioRecord delivers NOTHING (some devices/drivers
+    // block in read() waiting for a capturable source), the pump never sees data
+    // and the file stays a 44-byte header. Watch the byte count on a SEPARATE
+    // thread; after FALLBACK_MS of no progress, swap to the mic (which always
+    // delivers). Releasing the old record unblocks its stuck read().
+    private fun watchdog() {
+        val lastWrite = longArrayOf(System.currentTimeMillis())
+        while (running.get()) {
+            Thread.sleep(500)
+            if (dataBytes > lastWrite[0]) {
+                lastWrite[0] = dataBytes
+                continue
+            }
+            // No new bytes written since last tick.
+            if (audioSourceName.startsWith("Internal") &&
+                System.currentTimeMillis() - lastWrite[0] > FALLBACK_MS) {
+                android.util.Log.w(TAG, "internal capture starved; switching to mic")
+                val mic = buildMicRecord()
+                if (mic != null) {
+                    val old = audioRecord
+                    try { old?.stop() } catch (_: Exception) {}
+                    try { old?.release() } catch (_: Exception) {}
+                    audioRecord = mic
+                    audioSourceName = "Microphone (fallback)"
+                }
+                lastWrite[0] = dataBytes
+            }
+        }
+    }
 
     // ---- audio input pump ---------------------------------------------------
 
     private fun pumpAudio() {
-        var ar = audioRecord ?: return
         val buf = ByteArray(BUF_SIZE)
         var stream: FileOutputStream? = null
-        var lastDataMs = System.currentTimeMillis()
         try {
             stream = FileOutputStream(outFile)
             outStream = stream
             writeWavHeader(stream)
             while (running.get() || !ending) {
+                val ar = audioRecord ?: break
                 val n = try {
                     ar.read(buf, 0, buf.size)
                 } catch (_: Exception) {
-                    break
+                    -1
                 }
-                if (n <= 0) {
-                    if (!running.get()) break
-                    // n==0 (no data) with the source being internal-audio: it can
-                    // silently starve on some devices (nothing playable matches the
-                    // capture usages). Fall back to the mic, which usually delivers.
-                    if (audioSourceName.startsWith("Internal") &&
-                        System.currentTimeMillis() - lastDataMs > FALLBACK_MS) {
-                        android.util.Log.w(TAG, "internal capture starved; switching to mic")
-                        val mic = buildMicRecord()
-                        if (mic != null) {
-                            try { ar.stop() } catch (_: Exception) {}
-                            try { ar.release() } catch (_: Exception) {}
-                            ar = mic
-                            audioRecord = ar
-                            audioSourceName = "Microphone (fallback)"
-                        }
-                        lastDataMs = System.currentTimeMillis()
+                if (n < 0) {
+                    // Could be a released record from the watchdog swap — the
+                    // field now points at the mic; loop again to use it. If we're
+                    // ending, bail (stop() closes the header).
+                    if (!running.get() && ending) break
+                    if (audioRecord === ar) {
+                        // Same record, no data, not ending: brief pause to avoid
+                        // a hot spin on a record that's just returning -1.
+                        try { Thread.sleep(50) } catch (_: Exception) {}
                     }
                     continue
                 }
-                lastDataMs = System.currentTimeMillis()
+                if (n == 0) {
+                    try { Thread.sleep(20) } catch (_: Exception) {}
+                    continue
+                }
                 try {
                     stream.write(buf, 0, n)
                     dataBytes += n
@@ -154,10 +175,10 @@ class RecorderEngine(
         } catch (_: Exception) {
             // File I/O failed — nothing we can do; stop() patches what it can.
         } finally {
-            if (stream != null) {
-                try { stream.flush() } catch (_: Exception) {}
-                outStream = null
-            }
+            try { stream?.flush() } catch (_: Exception) {}
+            try { stream?.close() } catch (_: Exception) {}
+            outStream = null
+            pumpDone.countDown()
         }
     }
 
