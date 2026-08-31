@@ -62,6 +62,9 @@ class RecorderEngine(
     private var muxerStarted = false
     private var videoTrack = -1
     private var audioTrack = -1
+    private var videoFormatReceived = false
+    private var audioFormatReceived = false
+    private var videoFormatReceivedTimeMs = 0L
 
     private var videoCodec: MediaCodec? = null
     private var audioCodec: MediaCodec? = null
@@ -141,11 +144,12 @@ class RecorderEngine(
         )
 
         Thread { pumpAudio() }.start()
-        // Watchdog: if audio never registers a track, start with video only.
+        // Watchdog: poll the muxer-start condition (video-first) so the audio
+        // has a grace period but the muxer never starts on audio alone.
         Thread {
-            Thread.sleep(1500)
-            synchronized(muxerLock) {
-                if (!muxerStarted && (videoTrack >= 0 || audioTrack >= 0)) startMuxer()
+            while (running.get() && !muxerStarted) {
+                Thread.sleep(300)
+                synchronized(muxerLock) { maybeStartMuxer() }
             }
         }.start()
     }
@@ -220,13 +224,12 @@ class RecorderEngine(
         override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
             synchronized(muxerLock) {
                 muxer?.let {
-                    // If the muxer already started (watchdog fired on the other
-                    // track), addTrack would throw IllegalStateException from this
-                    // callback thread = crash. Skip the late track instead: it
-                    // stays -1, writeSample drops those samples (video-only file).
+                    // Never addTrack after the muxer started (addTrack on a started
+                    // muxer throws IllegalStateException = crash from this thread).
                     if (muxerStarted) return@synchronized
                     audioTrack = it.addTrack(format)
-                    tryStart()
+                    audioFormatReceived = true
+                    maybeStartMuxer()
                 }
             }
         }
@@ -247,7 +250,9 @@ class RecorderEngine(
                     // Same guard as audio: never addTrack after the muxer started.
                     if (muxerStarted) return@synchronized
                     videoTrack = it.addTrack(format)
-                    tryStart()
+                    videoFormatReceived = true
+                    videoFormatReceivedTimeMs = System.currentTimeMillis()
+                    maybeStartMuxer()
                 }
             }
         }
@@ -275,9 +280,15 @@ class RecorderEngine(
         codec.releaseOutputBuffer(index, false)
     }
 
-    private fun tryStart() {
-        if (muxerStarted) return
-        if (videoTrack >= 0 && audioTrack >= 0) startMuxer()
+    private fun maybeStartMuxer() {
+        if (muxerStarted || !videoFormatReceived) return
+        // Video-first: never start the muxer on audio alone (an audio-only MP4 is
+        // garbage). Audio gets a 3s grace after the video format, then we start
+        // video-only rather than block forever.
+        val audioReady = audioFormatReceived
+        val audioTimedOut = !audioReady && videoFormatReceivedTimeMs > 0 &&
+            (System.currentTimeMillis() - videoFormatReceivedTimeMs) > AUDIO_TRACK_TIMEOUT_MS
+        if (audioReady || audioTimedOut) startMuxer()
     }
 
     private fun startMuxer() {
@@ -343,6 +354,8 @@ class RecorderEngine(
             try {
                 val cfg = AudioPlaybackCaptureConfiguration.Builder(projection)
                     .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                    .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                     .build()
                 val ar = AudioRecord.Builder()
                     .setAudioPlaybackCaptureConfig(cfg)
@@ -392,5 +405,6 @@ class RecorderEngine(
         private const val CHANNELS = 2
         private const val AUDIO_BUF = 8192
         private const val TIMEOUT_US = 10_000L
+        private const val AUDIO_TRACK_TIMEOUT_MS = 3_000L
     }
 }

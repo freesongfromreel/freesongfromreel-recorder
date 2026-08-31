@@ -36,7 +36,11 @@ class RecorderService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForegroundCompat()
+        // Channel created here; typed FGS is deferred until AFTER getMediaProjection
+        // in startRecordingInner (API 34 wants an active projection for the
+        // mediaProjection type; created in startForegroundCompat).
+        val ch = NotificationChannel(CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -89,6 +93,9 @@ class RecorderService : Service() {
             ServiceState.lastError = e.message ?: "Could not start recording"
             val errMsg = ServiceState.lastError ?: "Could not start recording"
             cleanup()
+            // Satisfy the startForegroundService 5s rule even on the failure path
+            // (never started foreground → system would kill us with an exception).
+            startForegroundCompat()
             stopForeground(STOP_FOREGROUND_REMOVE)
             Notification(this, "Recording failed", errMsg)
                 .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
@@ -105,6 +112,11 @@ class RecorderService : Service() {
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val proj = mpm.getMediaProjection(resultCode, data)
         projection = proj
+
+        // Projection obtained → NOW it's safe to start the mediaProjection-typed
+        // FGS. (On API 34+ starting it before an active projection exists can
+        // throw; startForegroundCompat self-guards regardless.)
+        startForegroundCompat()
 
         val file = File(getExternalFilesDir(null) ?: filesDir, "recordings")
         if (!file.exists()) file.mkdirs()
@@ -158,15 +170,21 @@ class RecorderService : Service() {
             .build()
     }
 
+    private var fgStarted = false
+
     private fun startForegroundCompat() {
-        val ch = NotificationChannel(CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW)
-        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
+        if (fgStarted) return
         val n = Notification(this, "Free Song Recorder", "Ready to record")
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-        } else {
-            startForeground(NOTIF_ID, n)
+        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        try {
+            if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIF_ID, n, type)
+            else startForeground(NOTIF_ID, n)
+        } catch (e: SecurityException) {
+            // API 34+ may reject the mediaProjection type in some orderings —
+            // fall back to plain so a startForeground quirk can never crash the app.
+            try { startForeground(NOTIF_ID, n) } catch (_: Exception) {}
         }
+        fgStarted = true
     }
 
     override fun onDestroy() {
