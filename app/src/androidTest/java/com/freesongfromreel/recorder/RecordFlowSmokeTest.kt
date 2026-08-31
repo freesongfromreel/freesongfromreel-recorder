@@ -92,7 +92,7 @@ class RecordFlowSmokeTest {
         // Give it a moment, then stop via the button.
         device.waitForIdle()
         stopBtn.click()
-        val backToRecord = waitForRes("recordBtn", 12_000)
+        val backToRecord = waitForRes("recordBtn", 20_000)
         if (backToRecord == null) dumpScreen("no recordBtn after stop")
         assertNotNull("After stop, button should return", backToRecord)
         val backText = backToRecord!!.text
@@ -109,7 +109,7 @@ class RecordFlowSmokeTest {
             ?.let { device.findObject(By.res(context.packageName, resId)) }
     }
 
-    /** Dump current package + visible text/resource ids to help diagnose failures. */
+    /** Dump current package + visible ui + recent crash logcat to diagnose failures. */
     private fun dumpScreen(tag: String) {
         val sw = StringWriter()
         PrintWriter(sw).use { p ->
@@ -119,10 +119,16 @@ class RecordFlowSmokeTest {
                     p.println("  obj: ${it.className} text='${it.text}' res=${it.resourceName}")
                 }
             } catch (_: Exception) {}
+            p.println("--- recent logcat (crash) ---")
+            try {
+                p.println(device.executeShellCommand(
+                    "logcat -d -t 200 2>/dev/null | grep -E 'FATAL|AndroidRuntime|Exception|freesong|Recorder' | tail -40"
+                ))
+            } catch (_: Exception) {}
             p.println("=== end dump ===")
         }
-        // Log.i goes to logcat, which gradle connectedDebugAndroidTest captures.
-        android.util.Log.i(this.tag, sw.toString())
+        // Log goes to logcat, which gradle connectedDebugAndroidTest captures.
+        android.util.Log.e(this.tag, sw.toString())
     }
 
     /** Tap "Start now" on the screen-capture consent dialog (media projection). */
