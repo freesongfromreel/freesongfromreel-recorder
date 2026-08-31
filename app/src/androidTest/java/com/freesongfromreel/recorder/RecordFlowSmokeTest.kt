@@ -88,6 +88,15 @@ class RecordFlowSmokeTest {
             "Button should read 'Stop & save' after starting, was: '$stopText'",
             stopText.contains("stop", ignoreCase = true)
         )
+        // REAL capture check: the service must believe it's recording. If
+        // getMediaProjection() threw (e.g. typed-FGS not running first), the
+        // failure path sets isRecording=false and posts "Recording failed" —
+        // the button would still briefly say Stop & save, masking the bug.
+        Thread.sleep(2_000)
+        assertTrue(
+            "Service should be recording after consent accepted (isRecording=${ServiceState.isRecording})",
+            ServiceState.isRecording
+        )
 
         // Give it a moment, then stop via the button.
         device.waitForIdle()

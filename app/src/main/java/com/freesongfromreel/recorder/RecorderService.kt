@@ -109,14 +109,14 @@ class RecorderService : Service() {
 
     private fun startRecordingInner(resultCode: Int, data: Intent?) {
         if (data == null) { stopSelf(); return }
-        val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val proj = mpm.getMediaProjection(resultCode, data)
-        projection = proj
 
-        // Projection obtained → NOW it's safe to start the mediaProjection-typed
-        // FGS. On API 34+ an untyped FGS throws from createVirtualDisplay later,
-        // so a typed-start failure here aborts the recording cleanly instead of
-        // producing a phantom "Recording…" that can never capture.
+        // ORDER MATTERS (Android 14+): AOSPMediaProjectionManagerService.start()
+        // fires inside the MediaProjection constructor — i.e. DURING getMediaProjection()
+        // — and throws:
+        //   "Media projections require a foreground service of type
+        //   ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION"
+        // if the mediaProjection-typed FGS is not ALREADY running. So the typed FGS
+        // MUST start BEFORE getMediaProjection(). (TargetSdk >= 29 enforces this.)
         val fgErr = startForegroundCompat()
         if (fgErr != null) {
             cleanup()
@@ -124,6 +124,10 @@ class RecorderService : Service() {
             stopSelf()
             throw IllegalStateException("Foreground service (mediaProjection): $fgErr")
         }
+
+        val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val proj = mpm.getMediaProjection(resultCode, data)
+        projection = proj
 
         val file = File(getExternalFilesDir(null) ?: filesDir, "recordings")
         if (!file.exists()) file.mkdirs()
