@@ -125,6 +125,13 @@ class RecorderService : Service() {
                     .also { (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIF_ID + 1, it) }
                 stopRecording()
             }
+
+            override fun onStopped() {
+                // User/system ended capture (swiped the cast notification) — just
+                // finalize what we have, no error.
+                ServiceState.lastError = null
+                stopRecording()
+            }
         }
         e.start()
 

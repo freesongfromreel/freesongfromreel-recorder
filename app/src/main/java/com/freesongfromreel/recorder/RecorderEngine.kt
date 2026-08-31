@@ -42,8 +42,10 @@ class RecorderEngine(
     private val projection: MediaProjection,
     private val outFile: File
 ) {
-    fun interface Listener {
+    interface Listener {
         fun onError(msg: String)
+        /** Capture was ended by the system/user (cast notification swiped, permission revoked). */
+        fun onStopped()
     }
 
     var listener: Listener? = null
@@ -112,6 +114,23 @@ class RecorderEngine(
         inputSurface = surface
 
         muxer = MediaMuxer(outFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+        // API 34 REQUIRES a registered callback before createVirtualDisplay, or it
+        // throws "Must register a callback before starting capture". It's also how
+        // we learn the user revoked capture (swiped the cast notification).
+        projection.registerCallback(
+            object : MediaProjection.Callback() {
+                override fun onStop() {
+                    // Runs on the main looper; stop() can block a few seconds
+                    // draining encoders, so finalize off-thread.
+                    Thread {
+                        stop()
+                        listener?.onStopped()
+                    }.start()
+                }
+            },
+            null
+        )
 
         virtualDisplay = projection.createVirtualDisplay(
             "FreeSongRecorder", width(), height(), context.resources.displayMetrics.densityDpi,
