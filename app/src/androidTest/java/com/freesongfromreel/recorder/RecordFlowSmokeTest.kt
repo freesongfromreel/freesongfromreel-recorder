@@ -93,8 +93,22 @@ class RecordFlowSmokeTest {
         device.waitForIdle()
         stopBtn.click()
         val backToRecord = waitForRes("recordBtn", 20_000)
-        if (backToRecord == null) dumpScreen("no recordBtn after stop")
-        assertNotNull("After stop, button should return", backToRecord)
+        if (backToRecord == null) {
+            // Diagnostics straight into the assertion (captured in the report):
+            // is the app process even alive, and what crashed?
+            val crash = try {
+                device.executeShellCommand(
+                    "logcat -d -t 300 2>/dev/null | grep -E 'FATAL EXCEPTION|AndroidRuntime|Process: com.freesong' | tail -25"
+                ).trim()
+            } catch (_: Exception) { "" }
+            val state = try {
+                "pkg=${device.currentPackageName} " +
+                    device.findObjects(By.clazz("android.widget.Button")).map {
+                        "btn:${it.text}"
+                    }.joinToString()
+            } catch (_: Exception) { "?" }
+            assertNotNull("After stop, button should return [$state] crash=[$crash]", backToRecord)
+        }
         val backText = backToRecord!!.text
         assertTrue(
             "Button should read 'Record screen' after stop, was: '$backText'",
