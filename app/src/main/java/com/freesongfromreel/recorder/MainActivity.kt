@@ -153,15 +153,9 @@ class MainActivity : AppCompatActivity() {
         banner.loadAd(AdRequest.Builder().build())
 
         findViewById<Button>(R.id.recordBtn).setOnClickListener {
-            // Drive from the service's real state, not a stale local flag.
+            // Drive from the service's REAL state, not a stale local flag.
             val active = ServiceState.isRecording
-            if (!active) {
-                if (Build.VERSION.SDK_INT >= 33 &&
-                    ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                } else notificationOrOverlayOrStart()
-            } else {
+            if (active) {
                 startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false
                 setRecordingUi(false)
@@ -169,6 +163,20 @@ class MainActivity : AppCompatActivity() {
                 // the STOPPED broadcast arrives (service finished saving the MP4).
                 loadingOverlay.visibility = android.view.View.VISIBLE
                 status.text = "Mixing audio + video…"
+            } else if (recording) {
+                // Button still shows "Stop & save" but the service already ended
+                // (system ended the projection — swipe of the cast notification,
+                // screen-off, etc.). Tapping it must NOT re-open the recording
+                // consent ("Start now" again) — settle back to Record.
+                recording = false
+                setRecordingUi(false)
+                status.text = if (lastFile() != null) "Saved: ${lastFile()?.name}" else "No recording found"
+            } else {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                } else notificationOrOverlayOrStart()
             }
         }
 
