@@ -285,7 +285,7 @@ class MainActivity : AppCompatActivity() {
                 val spotify = json.optString("spotify", "")
                 result.text = buildString {
                     append("🎵 $title").append(if (artist.isNotEmpty()) "\n$artist" else "")
-                    if (spotify.isNotEmpty()) append("\n$spotify")
+                    if (spotify.isNotEmpty() && spotify != "null") append("\n$spotify")
                 }
             } catch (e: Exception) {
                 result.text = "Could not identify: ${e.message ?: "network error"}"
