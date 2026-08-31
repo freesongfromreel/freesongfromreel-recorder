@@ -1,6 +1,7 @@
 package com.freesongfromreel.recorder
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,12 +12,15 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.PrintWriter
+import java.io.StringWriter
 
 /**
  * End-to-end smoke test that would have caught the last three regressions:
@@ -29,6 +33,9 @@ import org.junit.runner.RunWith
  *   launch app -> tap Record -> grant mic -> grant notifications ->
  *   grant overlay -> tap "Start now" on the projection consent ->
  *   assert the app SURVIVES and the button becomes "Stop & save".
+ *
+ * Selectors use RESOURCE IDs (By.res) where possible — matching button text
+ * that starts with an emoji (⏺) via By.text is unreliable in UiAutomator.
  */
 @RunWith(AndroidJUnit4::class)
 class RecordFlowSmokeTest {
@@ -39,10 +46,8 @@ class RecordFlowSmokeTest {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        // Only needed if we run against an app that wasn't freshly reset — do a
-        // clean app start each test.
         context.packageManager.setComponentEnabledSetting(
-            android.content.ComponentName(context.packageName, MainActivity::class.java.name),
+            ComponentName(context.packageName, MainActivity::class.java.name),
             PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP
         )
         device.pressHome()
@@ -50,34 +55,62 @@ class RecordFlowSmokeTest {
 
     @Test
     fun recordFlow_survivesAndToggles() {
-        // launch the app
+        // Launch the app.
         val launcher = context.packageManager.getLaunchIntentForPackage(context.packageName)!!
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(launcher)
-        device.wait(Until.hasObject(By.text("⏺ Record screen")), 8_000)
-        assertNotNull("Record button should appear", device.findObject(By.text("⏺ Record screen")))
 
-        // tap Record -> grants + consent flow
-        device.findObject(By.text("⏺ Record screen")).click()
+        // The Record button (resource id, emoji-immune).
+        val record = waitForRes("recordBtn", 12_000)
+        if (record == null) dumpScreen("no recordBtn")
+        assertNotNull("Record button should appear (is app foreground? pkg=${device.currentPackageName})", record)
+
+        // Tap Record -> grants + consent flow.
+        record.click()
         handleRuntimePermission(Manifest.permission.RECORD_AUDIO)
         handleRuntimePermission(Manifest.permission.POST_NOTIFICATIONS)
         handleOverlayPermission()
         tapProjectionStart()
 
-        // the app must SURVIVE (no crash) and show the toggle
-        device.wait(Until.hasObject(By.text("⏹ Stop & save")), 8_000)
-        assertNotNull("Button should become 'Stop & save' after starting", device.findObject(By.text("⏹ Stop & save")))
+        // App must SURVIVE and the same button must read "Stop & save".
+        val stopBtn = waitForRes("recordBtn", 12_000)
+        if (stopBtn == null) dumpScreen("no stopBtn after start")
+        assertNotNull("Button should still exist after starting (pkg=${device.currentPackageName})", stopBtn)
+        val stopText = stopBtn.text
+        assertTrue(
+            "Button should read 'Stop & save' after starting, was: '$stopText'",
+            stopText.contains("Stop")
+        )
 
-        // give it a moment, then stop via the button
+        // Give it a moment, then stop via the button.
         device.waitForIdle()
-        val stop = device.findObject(By.text("⏹ Stop & save"))
-        assertNotNull(stop)
-        stop.click()
-        device.wait(Until.hasObject(By.text("⏺ Record screen")), 10_000)
-        assertNotNull("After stop, button returns to Record", device.findObject(By.text("⏺ Record screen")))
+        stopBtn.click()
+        val backToRecord = waitForRes("recordBtn", 12_000)
+        if (backToRecord == null) dumpScreen("no recordBtn after stop")
+        assertNotNull("After stop, button should return", backToRecord)
+        val backText = backToRecord.text
+        assertTrue("Button should read 'Record screen' after stop, was: '$backText'", backText.contains("Record"))
     }
 
     // ---- helpers -----------------------------------------------------------
+
+    private fun waitForRes(resId: String, timeoutMs: Long): UiObject2? {
+        return device.wait(Until.hasObject(By.res(context.packageName, resId)), timeoutMs)
+            ?.let { device.findObject(By.res(context.packageName, resId)) }
+    }
+
+    /** Dump current package + visible text/resource ids to help diagnose failures. */
+    private fun dumpScreen(tag: String) {
+        val sw = StringWriter()
+        PrintWriter(sw).use { p ->
+            p.println("=== dumpScreen[$tag] pkg=${device.currentPackageName} ===")
+            try {
+                device.findObjects(By.pkg(context.packageName)).forEach { p.println("  obj: ${it.className} ${it.text}") }
+            } catch (_: Exception) {}
+            p.println("=== end dump ===")
+        }
+        println(sw.toString())
+    }
 
     /** Grant a runtime permission via the system dialog if it's not already granted. */
     private fun handleRuntimePermission(permission: String) {
@@ -99,16 +132,15 @@ class RecordFlowSmokeTest {
             if (allow != null) allow.click()
             // Back to the app.
             device.pressBack()
-            // The launcher callback (StartActivityForResult) resumes us.
             device.waitForIdle()
         }
     }
 
     /** Tap "Start now" on the screen-capture consent dialog (media projection). */
     private fun tapProjectionStart() {
-        // The consent says "Start now" (start capturing) / "Don't start".
         device.wait(Until.hasObject(By.textContains("Start now")), 8_000)
         val start = device.findObject(By.textContains("Start now"))
+        if (start == null) dumpScreen("no Start now")
         assertNotNull("Should see the projection 'Start now' prompt", start)
         start.click()
     }
