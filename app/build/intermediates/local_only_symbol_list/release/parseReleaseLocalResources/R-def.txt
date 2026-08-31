@@ -9,6 +9,7 @@ id bannerTop
 id content
 id identifyBtn
 id loadingOverlay
+id progressPct
 id recordBtn
 id result
 id siteBtn

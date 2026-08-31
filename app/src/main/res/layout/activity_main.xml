@@ -71,13 +71,16 @@
             style="@style/Widget.AppCompat.Button.Colored" />
 
         <!-- Loading overlay: shown while the final MP4 is being muxed/saved
-             (Stop -> STOPPED broadcast). ProgressBar + message, center. -->
+             (Stop -> STOPPED broadcast). ProgressBar + message, center.
+             Solid bg = covers the buttons underneath while mixing. -->
         <LinearLayout
             android:id="@+id/loadingOverlay"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:orientation="vertical"
             android:gravity="center"
+            android:background="#f6f8fa"
             android:visibility="gone"
             android:layout_marginTop="24dp">
 
@@ -92,6 +95,16 @@
                 android:textSize="16sp"
                 android:textColor="#1a1a2e"
                 android:layout_marginTop="12dp" />
+
+            <TextView
+                android:id="@+id/progressPct"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0%"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="#4a6cf7"
+                android:layout_marginTop="4dp" />
         </LinearLayout>
     </LinearLayout>
 

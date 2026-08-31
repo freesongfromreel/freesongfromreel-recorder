@@ -79,6 +79,13 @@ class RecorderService : Service() {
         }.start()
     }
 
+    /** Relay finalize/mix progress (0-100) to the Activity so it can show % while saving. */
+    private val progressRelay: (Int) -> Unit = { pct ->
+        try {
+            sendBroadcast(Intent(ACTION_MIX_PROGRESS).putExtra(EXTRA_PROGRESS, pct))
+        } catch (_: Exception) {}
+    }
+
     private val audioSourceName: String
         get() = engine?.audioSourceName ?: "Microphone"
 
@@ -154,6 +161,10 @@ class RecorderService : Service() {
                 // finalize what we have, no error.
                 ServiceState.lastError = null
                 stopRecording()
+            }
+
+            override fun onStopProgress(percent: Int) {
+                progressRelay(percent)
             }
         }
         e.start()
@@ -256,10 +267,12 @@ class RecorderService : Service() {
         const val ACTION_START = "com.freesongfromreel.recorder.START"
         const val ACTION_STOP = "com.freesongfromreel.recorder.STOP"
         const val ACTION_RECORDING_STOPPED = "com.freesongfromreel.recorder.STOPPED"
+        const val ACTION_MIX_PROGRESS = "com.freesongfromreel.recorder.MIX_PROGRESS"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         const val EXTRA_FILE = "file"
         const val EXTRA_AUDIO_SOURCE = "audio_source"
+        const val EXTRA_PROGRESS = "progress"
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1
     }

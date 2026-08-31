@@ -49,8 +49,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bannerTop: AdView
     private lateinit var banner: AdView
     private lateinit var loadingOverlay: android.view.View
+    private lateinit var progressPct: TextView
     private var recording = false
     private var lastFile: File? = null
+
+    private val progressReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val pct = intent?.getIntExtra(RecorderService.EXTRA_PROGRESS, 0) ?: 0
+            // Show a real percentage to the user while the MP4 is being muxed/saved.
+            if (::progressPct.isInitialized) progressPct.text = "${pct.coerceIn(0, 100)}%"
+        }
+    }
 
     private val stopReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -60,6 +69,9 @@ class MainActivity : AppCompatActivity() {
             // the consent popup again (looks like restarting).
             recording = false
             loadingOverlay.visibility = android.view.View.GONE
+            findViewById<Button>(R.id.recordBtn).visibility = android.view.View.VISIBLE
+            findViewById<Button>(R.id.identifyBtn).visibility = android.view.View.VISIBLE
+            findViewById<Button>(R.id.siteBtn).visibility = android.view.View.VISIBLE
             setRecordingUi(false)
             lastFile = intent?.getStringExtra(RecorderService.EXTRA_FILE)?.let { File(it) }
                 ?: lastFile()
@@ -138,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         bannerTop = findViewById(R.id.bannerTop)
         banner = findViewById(R.id.banner)
         loadingOverlay = findViewById(R.id.loadingOverlay)
+        progressPct = findViewById(R.id.progressPct)
 
         // Sync button/UI when the service stops on its own (notification Stop,
         // crash, etc.) — not just when WE tap Stop.
@@ -145,6 +158,12 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(
             this, stopReceiver,
             IntentFilter(RecorderService.ACTION_RECORDING_STOPPED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        // Progress updates for the "Extracting audio" overlay (%).
+        ContextCompat.registerReceiver(
+            this, progressReceiver,
+            IntentFilter(RecorderService.ACTION_MIX_PROGRESS),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
@@ -159,10 +178,14 @@ class MainActivity : AppCompatActivity() {
                 startService(Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP))
                 recording = false
                 setRecordingUi(false)
-                // Loading overlay = the "mixing audio + video" phase. Hidden when
+                // Loading overlay = the "extracting audio" phase. Hidden when
                 // the STOPPED broadcast arrives (service finished saving the MP4).
                 loadingOverlay.visibility = android.view.View.VISIBLE
-                status.text = "Mixing audio + video…"
+                findViewById<Button>(R.id.recordBtn).visibility = android.view.View.GONE
+                findViewById<Button>(R.id.identifyBtn).visibility = android.view.View.GONE
+                findViewById<Button>(R.id.siteBtn).visibility = android.view.View.GONE
+                progressPct.text = "0%"
+                status.text = "Extracting audio…"
             } else if (recording) {
                 // Button still shows "Stop & save" but the service already ended
                 // (system ended the projection — swipe of the cast notification,
@@ -200,6 +223,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(stopReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(progressReceiver) } catch (_: Exception) {}
     }
 
     private fun startProjection() {
@@ -208,7 +232,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setRecordingUi(on: Boolean) {
-        status.text = if (on) "Recording…" else "Idle — record a video, then tap Identify song"
+        status.text = if (on) "Recording…" else "Idle — record a song, then tap Identify song"
         val btn = findViewById<Button>(R.id.recordBtn)
         btn.setText(if (on) R.string.record_stop else R.string.record)
         banner.visibility = if (on) android.view.View.GONE else android.view.View.VISIBLE

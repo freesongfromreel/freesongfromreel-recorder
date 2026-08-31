@@ -3523,6 +3523,7 @@ id pin
 id position
 id postLayout
 id pressed
+id progressPct
 id progress_circular
 id progress_horizontal
 id radio
