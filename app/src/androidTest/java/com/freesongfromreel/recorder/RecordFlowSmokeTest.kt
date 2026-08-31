@@ -42,6 +42,7 @@ class RecordFlowSmokeTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private lateinit var device: UiDevice
+    private val tag = "RecordFlowSmokeTest"
 
     @Before
     fun setUp() {
@@ -105,11 +106,14 @@ class RecordFlowSmokeTest {
         PrintWriter(sw).use { p ->
             p.println("=== dumpScreen[$tag] pkg=${device.currentPackageName} ===")
             try {
-                device.findObjects(By.pkg(context.packageName)).forEach { p.println("  obj: ${it.className} ${it.text}") }
+                device.findObjects(By.pkg(context.packageName)).forEach {
+                    p.println("  obj: ${it.className} text='${it.text}' res=${it.resourceName}")
+                }
             } catch (_: Exception) {}
             p.println("=== end dump ===")
         }
-        println(sw.toString())
+        // Log.i goes to logcat, which gradle connectedDebugAndroidTest captures.
+        android.util.Log.i(this.tag, sw.toString())
     }
 
     /** Grant a runtime permission via the system dialog if it's not already granted. */
@@ -138,10 +142,21 @@ class RecordFlowSmokeTest {
 
     /** Tap "Start now" on the screen-capture consent dialog (media projection). */
     private fun tapProjectionStart() {
-        device.wait(Until.hasObject(By.textContains("Start now")), 8_000)
-        val start = device.findObject(By.textContains("Start now"))
-        if (start == null) dumpScreen("no Start now")
-        assertNotNull("Should see the projection 'Start now' prompt", start)
-        start!!.click()
+        val start = device.wait(Until.findObject(By.textContains("Start now")), 10_000)
+        if (start == null) {
+            dumpScreen("no Start now")
+            // Include what system dialog IS present so a wording change is visible.
+            val hint = try {
+                device.findObjects(By.clazz("android.widget.Button")).map {
+                    "button:'${it.text}'"
+                }.joinToString()
+            } catch (_: Exception) { "?" }
+            assertNotNull(
+                "Projection consent missing (pkg=${device.currentPackageName} buttons=$hint)",
+                start
+            )
+        } else {
+            start.click()
+        }
     }
 }
